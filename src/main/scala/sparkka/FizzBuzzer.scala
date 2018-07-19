@@ -17,10 +17,13 @@ object FizzBuzzer {
   }
 }
 
-class FizzBuzzer extends GraphStageWithMaterializedValue[UniformFanOutShape[FizzOrBuzzOrFizzBuzz, Int], Future[FizzBuzzer.Stats]] {
-  val inlet = Inlet[FizzOrBuzzOrFizzBuzz]("fb-in")
-  val outletFizz = Outlet[Int](name = "fizz-out")
+/**
+  * Split a set of fizz buzz inputs into multiple streams aggregating counts and stats
+  */
+class FizzBuzzer extends GraphStageWithMaterializedValue[UniformFanOutShape[FizzBuzzState, Int], Future[FizzBuzzer.Stats]] {
+  val inlet = Inlet[FizzBuzzState]("fb-in")
   val outletBuzz = Outlet[Int](name = "buzz-out")
+  val outletFizz = Outlet[Int](name = "fizz-out")
   val outletFizzBuzz = Outlet[Int](name = "fizzbuzz-out")
 
   val shape = UniformFanOutShape(inlet, outletFizz, outletBuzz, outletFizzBuzz)
@@ -35,50 +38,51 @@ class FizzBuzzer extends GraphStageWithMaterializedValue[UniformFanOutShape[Fizz
       var buzzCount = 0
       var fizzbuzzDemand = false
       var fizzbuzzCount = 0
-      var total = 0
+      var total = FizzBuzzer.Stats(0, 0, 0)
+
+      override def postStop(): Unit = {
+        promiseStats.trySuccess(total)
+      }
 
       setHandler(inlet, new InHandler {
         override def onPush(): Unit = {
-          total
           grab(inlet) match {
-            case m: Fizz with Buzz =>
+            case FizzBuzzState.FizzBuzz =>
+              total = total.markFizzBuzz()
               fizzbuzzCount += 1
               if (!isClosed(outletFizzBuzz) && isAvailable(outletFizzBuzz) && fizzbuzzDemand) {
                 push(outletFizzBuzz, fizzbuzzCount)
                 fizzbuzzCount = 0
                 fizzbuzzDemand = false
-              } else {
-                tryPull(inlet)
               }
-            case m: Fizz =>
+            case FizzBuzzState.Fizz =>
+              total = total.markFizz()
               fizzCount += 1
               if (!isClosed(outletFizzBuzz) && isAvailable(outletFizzBuzz) && fizzDemand) {
-                push(outletFizzBuzz, fizzCount)
+                push(outletFizz, fizzCount)
                 fizzCount = 0
                 fizzDemand = false
-              } else {
-                tryPull(inlet)
               }
-            case m: Buzz =>
+            case FizzBuzzState.Buzz =>
+              total = total.markBuzz()
               buzzCount += 1
-              if (!isClosed(outletBuzz) && isAvailable(outletBuzz) && buzzDemand) {
+              if (buzzDemand && !isClosed(outletBuzz) && isAvailable(outletBuzz)) {
                 push(outletBuzz, buzzCount)
                 buzzCount = 0
                 buzzDemand = false
-              } else {
-                tryPull(inlet)
               }
+          }
+
+          if(!hasBeenPulled(inlet) && (buzzDemand || fizzDemand || fizzbuzzDemand)) {
+            tryPull(inlet)
           }
         }
       })
 
-      def shouldPull: Boolean = !(fizzDemand || buzzDemand || fizzbuzzDemand)
-
       setHandler(outletFizz, new OutHandler {
         override def onPull(): Unit = {
-          val canPull = shouldPull
           fizzDemand = true
-          if (shouldPull) {
+          if (!hasBeenPulled(inlet)) {
             tryPull(inlet)
           }
         }
@@ -86,9 +90,8 @@ class FizzBuzzer extends GraphStageWithMaterializedValue[UniformFanOutShape[Fizz
 
       setHandler(outletBuzz, new OutHandler {
         override def onPull(): Unit = {
-          val canPull = shouldPull
           buzzDemand = true
-          if (shouldPull) {
+          if (!hasBeenPulled(inlet)) {
             tryPull(inlet)
           }
         }
@@ -96,13 +99,14 @@ class FizzBuzzer extends GraphStageWithMaterializedValue[UniformFanOutShape[Fizz
 
       setHandler(outletFizzBuzz, new OutHandler {
         override def onPull(): Unit = {
-          val canPull = shouldPull
           fizzbuzzDemand = true
-          if (shouldPull) {
+          if (!hasBeenPulled(inlet)) {
             tryPull(inlet)
           }
         }
       })
     }
+
+    logic -> promiseStats.future
   }
 }

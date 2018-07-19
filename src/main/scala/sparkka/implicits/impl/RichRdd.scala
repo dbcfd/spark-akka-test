@@ -1,11 +1,16 @@
 package sparkka.implicits.impl
 
+import akka.stream.Materializer
 import akka.stream.scaladsl.Flow
-import org.apache.spark.rdd.RDD
-import sparkka.RddAdapter
+import sparkka.{RddAdapter, SparkkaExecutor, SparkkaRdd}
 
-final class RichRdd[T](val rdd: RDD[T]) extends AnyVal {
-  def via[O, M](flow: Flow[T, O, M]): RDD[Either[M, O]] = {
+/**
+  * Enrichment to make passing an rdd through a flow more dsl like
+  * @param rdd
+  * @tparam T
+  */
+final class RichRdd[T](val rdd: SparkkaRdd[T]) extends AnyVal {
+  def via[O, M](flow: SparkkaExecutor => Flow[T, O, M]): SparkkaRdd[Either[M, O]] = {
     RddAdapter(rdd, flow)
   }
 }

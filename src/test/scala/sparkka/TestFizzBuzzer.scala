@@ -17,29 +17,31 @@ class TestFizzBuzzer extends TestKit(ActorSystem("FizzBuzzer")) with FlatSpecLik
   implicit val mat = ActorMaterializer()
 
   def run(
-    source: Source[FizzOrBuzzOrFizzBuzz, akka.NotUsed],
+    source: Source[FizzBuzzState, akka.NotUsed],
     fizzBuzzer: FizzBuzzer
-  ): Future[Map[FizzOrBuzzOrFizzBuzz, Vector[Int]]] = {
-    val sink = Sink.fold(Map.empty[FizzOrBuzzOrFizzBuzz, Vector[Int]]) {
-      case (agg, (e: FizzOrBuzzOrFizzBuzz, v: Vector[Int])) =>
-        val existing = agg.getOrElse(e, Vector.empty)
-        agg.updated(e, existing ++ v)
+  ): Future[Map[FizzBuzzState, Int]] = {
+    val sink = Sink.fold[Map[FizzBuzzState, Int], (FizzBuzzState, Int)](Map.empty[FizzBuzzState, Int]) {
+      case (agg, (k, v)) =>
+        val existing = agg.getOrElse(k, 0)
+        agg.updated(k, existing + v)
     }
     val g = GraphDSL.create(source, sink)( (_, s) => s) { implicit bldr => (src, snk) =>
       import GraphDSL.Implicits._
 
-      source ~> fizzBuzzer.inlet
+      val fb = bldr.add(new FizzBuzzer)
 
-      val merge = bldr.add(Merge[(FizzOrBuzzOrFizzBuzz, Vector[Int])](3))
+      src ~> fb
 
-      val aggFizz = bldr.add(Flow[Int].fold(Vector.empty[Int])(_ :+ _).map(FizzBuzz.Fizz -> _))
-      fizzBuzzer.outletFizz ~> aggFizz ~> merge
+      val merge = bldr.add(Merge[(FizzBuzzState, Int)](fb.outlets.length))
 
-      val aggBuzz = bldr.add(Flow[Int].fold(Vector.empty[Int])(_ :+ _).map(FizzBuzz.Buzz -> _))
-      fizzBuzzer.outletBuzz ~> aggBuzz ~> merge
+      val aggFizz = bldr.add(Flow[Int].fold(0)(_ + _).map(FizzBuzzState.Fizz -> _))
+      fb.out(0) ~> aggFizz ~> merge
 
-      val aggFizzBuzz = bldr.add(Flow[Int].fold(Vector.empty[Int])(_ :+ _).map(FizzBuzz.FizzBuzz -> _))
-      fizzBuzzer.outletFizzBuzz ~> aggFizzBuzz ~> merge
+      val aggBuzz = bldr.add(Flow[Int].fold(0)(_ + _).map(FizzBuzzState.Buzz -> _))
+      fb.out(1) ~> aggBuzz ~> merge
+
+      val aggFizzBuzz = bldr.add(Flow[Int].fold(0)(_ + _).map(FizzBuzzState.FizzBuzz -> _))
+      fb.out(2) ~> aggFizzBuzz ~> merge
 
       merge ~> snk
 
@@ -50,12 +52,12 @@ class TestFizzBuzzer extends TestKit(ActorSystem("FizzBuzzer")) with FlatSpecLik
   }
 
   "FizzBuzzer" should "count fizzes and buzzes" in {
-    val source = Source.fromIterator(() => Iterator(FizzBuzz.Fizz, FizzBuzz.Buzz, FizzBuzz.FizzBuzz, FizzBuzz.Buzz, FizzBuzz.Fizz))
+    val source = Source.fromIterator(() => Iterator(FizzBuzzState.Fizz, FizzBuzzState.Buzz, FizzBuzzState.FizzBuzz, FizzBuzzState.Buzz, FizzBuzzState.Fizz))
 
     run(source, new FizzBuzzer).futureValue should be (Map(
-      FizzBuzz.Fizz -> 2,
-      FizzBuzz.Buzz -> 2,
-      FizzBuzz.FizzBuzz -> 1
+      FizzBuzzState.Fizz -> 2,
+      FizzBuzzState.Buzz -> 2,
+      FizzBuzzState.FizzBuzz -> 1
     ))
   }
 }
