@@ -28,6 +28,8 @@ object RddAdapter {
 
           override def hasNext: Boolean = {
             if (hasValues) {
+              //this is really terrible, and maybe should have a timeout, but since spark likes iterators, it works
+              //could go all in on spark streaming and then there's better ways to do this
               maybeNext = Await.result(pullable.pull(), Duration.Inf).map(Right(_))
               hasValues = maybeNext.nonEmpty
             } else if (needsMaterializedValue) {

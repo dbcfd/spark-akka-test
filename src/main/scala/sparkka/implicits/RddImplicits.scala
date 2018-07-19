@@ -1,6 +1,5 @@
 package sparkka.implicits
 
-import org.apache.spark.rdd.RDD
 import sparkka.SparkkaRdd
 
 import scala.language.implicitConversions

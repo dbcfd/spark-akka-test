@@ -1,5 +1,8 @@
 package sparkka
 
+/**
+  * Enum like representation of possible fizz buzz values. Mainly because scala enums can be annoying to work with.
+  */
 object FizzBuzzState {
   case object Fizz extends FizzBuzzState
   case object Buzz extends FizzBuzzState
